@@ -1,31 +1,44 @@
-const { Telegraf } = require('telegraf');
-const mongoose = require('mongoose');
-const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
-const express = require('express');
-require('dotenv').config();
+import { Telegraf, Context } from 'telegraf';
+import mongoose from 'mongoose';
+import axios from 'axios';
+import fs from 'fs';
+import path from 'path';
+import express, { Express, Request, Response } from 'express';
+import dotenv from 'dotenv';
+dotenv.config();
 
-mongoose.connect(process.env.MONGO_URI, { 
-    useNewUrlParser: true, 
-    useUnifiedTopology: true 
-})
+mongoose.connect(process.env.MONGO_URI as string)
 .then(() => console.log('MongoDB Atlas Connected'))
-.catch((err) => console.error('Error connecting to MongoDB Atlas:', err));
+.catch((err: any) => console.error('Error connecting to MongoDB Atlas:', err));
 
-const Video = mongoose.model('Video', new mongoose.Schema({
+const VideoSchema = new mongoose.Schema({
     platform: String,
     video_url: String,
     video_thumbnail: String,
     original_url: String,
     date_added: { type: Date, default: Date.now }
-}));
+});
 
-const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
+const Video = mongoose.model('Video', VideoSchema);
 
-const platformPatterns = JSON.parse(process.env.PLATFORM_PATTERNS);
+interface MediaInfo {
+    platform: string;
+    mediaUrl: string;
+    thumbnail: string;
+    type: string;
+    extension: string;
+}
 
-async function saveVideo(platform, videoUrl, videoThumbnail, originalUrl) {
+interface Platform {
+    name: string;
+    patterns: string[];
+}
+
+const platformPatterns: Platform[] = JSON.parse(process.env.PLATFORM_PATTERNS as string);
+
+const bot = new Telegraf<Context>(process.env.TELEGRAM_BOT_TOKEN as string);
+
+async function saveVideo(platform: string, videoUrl: string, videoThumbnail: string, originalUrl: string): Promise<void> {
     const video = new Video({ 
         platform: platform,
         video_url: videoUrl, 
@@ -36,7 +49,7 @@ async function saveVideo(platform, videoUrl, videoThumbnail, originalUrl) {
     console.log(`Saved ${platform} media to database`);
 }
 
-async function downloadMedia(url) {
+async function downloadMedia(url: string): Promise<MediaInfo> {
     const options = {
         method: 'POST',
         url: process.env.RAPIDAPI_URL,
@@ -55,26 +68,26 @@ async function downloadMedia(url) {
         const platform = response.data.source || identifyPlatform(url) || 'unknown';
         
         if (response.data && response.data.medias && response.data.medias.length > 0) {
-            let bestVideo = null;
-            let bestAudio = null;
-            let bestImage = null;
+            let bestVideo: any = null;
+            let bestAudio: any = null;
+            let bestImage: any = null;
             
-            bestVideo = response.data.medias.find(media => 
+            bestVideo = response.data.medias.find((media: any) => 
                 media.type === "video" && media.quality === "hd_no_watermark");
             
             if (!bestVideo) {
-                bestVideo = response.data.medias.find(media => 
+                bestVideo = response.data.medias.find((media: any) => 
                     media.type === "video" && media.quality === "no_watermark");
             }
             
             if (!bestVideo) {
-                bestVideo = response.data.medias.find(media => media.type === "video");
+                bestVideo = response.data.medias.find((media: any) => media.type === "video");
             }
             
-            bestAudio = response.data.medias.find(media => media.type === "audio");
+            bestAudio = response.data.medias.find((media: any) => media.type === "audio");
             
             if (!bestVideo) {
-                bestImage = response.data.medias.find(media => 
+                bestImage = response.data.medias.find((media: any) => 
                     media.type === "image" || media.extension === "jpg" || media.extension === "png");
             }            
             
@@ -110,11 +123,11 @@ async function downloadMedia(url) {
             
             if (urlLower.endsWith('.mp3') || urlLower.endsWith('.wav') || urlLower.endsWith('.ogg')) {
                 type = 'audio';
-                extension = urlLower.split('.').pop();
+                extension = urlLower.split('.').pop() as string;
             } else if (urlLower.endsWith('.jpg') || urlLower.endsWith('.jpeg') || 
                       urlLower.endsWith('.png') || urlLower.endsWith('.gif')) {
                 type = 'image';
-                extension = urlLower.split('.').pop();
+                extension = urlLower.split('.').pop() as string;
             }
             
             return {
@@ -127,13 +140,13 @@ async function downloadMedia(url) {
         }
         
         throw new Error('Media not found or failed to fetch.');
-    } catch (error) {
+    } catch (error: any) {
         console.error('Error downloading media:', error.message);
         throw error;
     }
 }
 
-async function sendMediaToUser(ctx, mediaInfo) {
+async function sendMediaToUser(ctx: Context, mediaInfo: MediaInfo): Promise<void> {
     try {
         await ctx.reply(`Sedang mengunduh ${mediaInfo.type} dari ${mediaInfo.platform}, mohon tunggu sebentar...`);
         
@@ -143,7 +156,7 @@ async function sendMediaToUser(ctx, mediaInfo) {
         });
         
         const timestamp = Date.now();
-        let filePath;
+        let filePath: string;
         
         if (mediaInfo.type === 'video') {
             filePath = path.join(__dirname, `video_${timestamp}.${mediaInfo.extension || 'mp4'}`);
@@ -179,7 +192,7 @@ async function sendMediaToUser(ctx, mediaInfo) {
                     { caption: `Media dari ${mediaInfo.platform}` }
                 );
             }
-        } catch (sendError) {
+        } catch (sendError: any) {
             console.error('Error sending media, trying as document:', sendError);
             await ctx.replyWithDocument(
                 { source: filePath }, 
@@ -187,16 +200,16 @@ async function sendMediaToUser(ctx, mediaInfo) {
             );
         }
         
-        fs.unlink(filePath, (err) => {
+        fs.unlink(filePath, (err: NodeJS.ErrnoException | null) => {
             if (err) console.error('Error deleting file:', err);
         });
-    } catch (error) {
+    } catch (error: any) {
         console.error('Error sending media to user:', error);
         ctx.reply(`Terjadi kesalahan saat mengirim ${mediaInfo.type}. Media mungkin terlalu besar atau tidak tersedia.`);
     }
 }
 
-function identifyPlatform(url) {
+function identifyPlatform(url: string): string | null {
     const urlLower = url.toLowerCase();
     
     for (const platform of platformPatterns) {
@@ -210,14 +223,14 @@ function identifyPlatform(url) {
     return null;
 }
 
-function getSupportedPlatformsList() {
+function getSupportedPlatformsList(): string {
     return platformPatterns
         .map(p => p.name)
         .sort()
         .join(', ');
 }
 
-bot.start((ctx) => {
+bot.start((ctx: Context) => {
     ctx.reply(
         'Selamat datang di Multi-Platform Media Downloader Bot!\n\n' +
         'Bot ini dapat mengunduh video, audio, dan gambar dari berbagai platform media sosial dan situs web.\n\n' +
@@ -225,7 +238,7 @@ bot.start((ctx) => {
     );
 });
 
-bot.help((ctx) => {
+bot.help((ctx: Context) => {
     ctx.reply(
         'Multi-Platform Media Downloader Bot\n\n' +
         'Cara penggunaan:\n' +
@@ -241,15 +254,19 @@ bot.help((ctx) => {
     );
 });
 
-bot.command('platforms', (ctx) => {
+bot.command('platforms', (ctx: Context) => {
     ctx.reply(
         'Platform yang didukung:\n\n' +
         getSupportedPlatformsList()
     );
 });
 
-bot.on('text', async (ctx) => {
-    const message = ctx.message.text;
+bot.on('text', async (ctx: Context) => {
+    const message: string | undefined = ctx.message && 'text' in ctx.message ? ctx.message.text : undefined;
+    if (!message) {
+        ctx.reply('Pesan tidak valid. Tolong kirimkan teks yang sesuai.');
+        return;
+    }
     
     if (message.startsWith('/')) return;
     
@@ -262,7 +279,7 @@ bot.on('text', async (ctx) => {
                 const mediaInfo = await downloadMedia(message);
                 await saveVideo(mediaInfo.platform, mediaInfo.mediaUrl, mediaInfo.thumbnail, message);
                 await sendMediaToUser(ctx, mediaInfo);
-            } catch (error) {
+            } catch (error: any) {
                 console.error(`Error processing ${platform} link:`, error);
                 ctx.reply(`Terjadi kesalahan saat memproses media dari ${platform}. Pastikan URL yang kamu kirim valid dan konten tidak diprivat.`);
             }
@@ -274,7 +291,7 @@ bot.on('text', async (ctx) => {
     }
 });
 
-bot.catch((err, ctx) => {
+bot.catch((err: any, ctx: Context) => {
     console.error('Bot error:', err);
     ctx.reply('Terjadi kesalahan pada bot. Silakan coba lagi nanti.');
 });
@@ -282,24 +299,24 @@ bot.catch((err, ctx) => {
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
 
-const app = express();
-app.get('/', (req, res) => {
+const app: Express = express();
+app.get('/', (req: Request, res: Response) => {
     res.send('Bot is running!');
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT: number = parseInt(process.env.PORT || '3000');
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
 
 bot.launch()
     .then(() => console.log('Bot Telegram berjalan...'))
-    .catch((err) => console.error('Error running bot:', err));
+    .catch((err: any) => console.error('Error running bot:', err));
 
-process.on('uncaughtException', (err) => {
+process.on('uncaughtException', (err: Error) => {
     console.error('Uncaught exception:', err);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
     console.error('Unhandled rejection at:', promise, 'reason:', reason);
 });
